@@ -100,9 +100,7 @@ class PaperboyEngine:
 
     @final
     async def __manual_commit(self):
-        self.log.info(
-            f"Starting manual commit loop, with a {self.commit_interval_sec}s interval"
-        )
+        self.log.info(f"Starting manual commit loop, with a {self.commit_interval_sec}s interval")
         while True:
             await asyncio.sleep(self.commit_interval_sec)
             self.log.debug("Committing offsets...")
@@ -156,9 +154,7 @@ class PaperboyEngine:
                 return
             signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
             for s in signals:
-                loop.add_signal_handler(
-                    s, lambda s=s: asyncio.create_task(self.shutdown(s))
-                )
+                loop.add_signal_handler(s, lambda s=s: asyncio.create_task(self.shutdown(s)))
 
             await loop.create_task(self.__consume())
         except (ConsumerStoppedError, asyncio.CancelledError):
@@ -174,10 +170,10 @@ class PaperboyEngine:
         """
         if signal:
             self.log.info(f"Received exit signal {signal.name}...")
-        self.log.info(f"Stopping consumer...")
+        self.log.info("Stopping consumer...")
         await self.consumer.stop()
 
-        self.log.info(f"Cancelling async tasks...")
+        self.log.info("Cancelling async tasks...")
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         [task.cancel() for task in tasks]
 

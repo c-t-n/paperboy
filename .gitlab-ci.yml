@@ -1,0 +1,60 @@
+# Merci Lena pour le template
+
+stages:
+- info
+- check
+- publish
+
+image: nexus.42.fr:5000/docker/python-ci:3.11.2-1.5.1
+
+default:
+  tags:
+  - docker
+
+.check-common: &check-common
+  cache:
+    key: ${CI_PROJECT_PATH_SLUG}
+    paths:
+    - ./.mypy_cache
+    - ./.pytest_cache
+    - ./.venv/
+
+
+info:
+  stage: info
+  script:
+  - printenv
+  - poetry version | cut -d' ' -f2
+  - export VERSION=$(poe -q ci-version)
+  - echo "$VERSION"
+
+lint:
+  <<: *check-common
+  stage: check
+  script:
+  - poe lint
+
+typecheck:
+  <<: *check-common
+  stage: check
+  script:
+  - poe typecheck
+
+test:
+  <<: *check-common
+  stage: check
+  script:
+  - poe test-cov
+
+publish:
+  stage: publish
+  cache:
+    key: ${CI_PROJECT_PATH_SLUG}
+    paths:
+    - ./.venv/
+  before_script:
+  - poetry config repositories.nexus-internal https://nexus.42.fr/repository/pypi-internal/
+  script:
+  - poe publish
+  only:
+  - tags

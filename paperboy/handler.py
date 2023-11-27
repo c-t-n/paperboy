@@ -1,5 +1,6 @@
 import logging
 from typing import Generic, TypeVar, final
+
 from aiokafka import ConsumerRecord
 
 KT = TypeVar("KT")
@@ -37,9 +38,7 @@ class BasePaperboyHandler(Generic[KT, VT]):
         return None
 
     @classmethod
-    async def did_receive_message(
-        cls, msg: ConsumerRecord, ctx: Context
-    ) -> ConsumerRecord[KT, VT]:
+    async def did_receive_message(cls, msg: ConsumerRecord, ctx: Context) -> ConsumerRecord[KT, VT]:
         """
         Lifecycle Hook called when a message of a batch is received.
 
@@ -70,9 +69,7 @@ class BasePaperboyHandler(Generic[KT, VT]):
         return
 
     @classmethod
-    async def on_error(
-        cls, e: Exception, msg: ConsumerRecord[KT, VT], ctx: Context
-    ) -> Exception | None:
+    async def on_error(cls, e: Exception, msg: ConsumerRecord[KT, VT], ctx: Context) -> Exception | None:
         """
         Lifecycle Hook called when an error occurs while handling a message.
 
@@ -84,9 +81,7 @@ class BasePaperboyHandler(Generic[KT, VT]):
         return e
 
     @classmethod
-    async def on_finish_handling(
-        cls, msgs: list[ConsumerRecord[KT, VT]], ctx: Context | None = None
-    ):
+    async def on_finish_handling(cls, msgs: list[ConsumerRecord[KT, VT]], ctx: Context | None = None):
         """
         Lifecycle Hook called after handling all messages of a batch
 
@@ -251,9 +246,7 @@ class PaperboyBulkHandler(BasePaperboyHandler[KT, VT]):
         return
 
     @classmethod
-    async def on_bulk_error(
-        cls, e: Exception, msgs: list[ConsumerRecord[KT, VT]], ctx: Context
-    ) -> Exception | None:
+    async def on_bulk_error(cls, e: Exception, msgs: list[ConsumerRecord[KT, VT]], ctx: Context) -> Exception | None:
         """
         Lifecycle Hook called when an error occurs while handling a message.
 

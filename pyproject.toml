@@ -12,6 +12,69 @@ aiokafka = "^0.8.1"
 python-schema-registry-client = "^2.5.0"
 
 
+[tool.poetry.group.dev.dependencies]
+flake8 = "^6.1.0"
+isort = "^5.12.0"
+black = "^23.9.1"
+mypy = "^1.6.0"
+pytest = "^7.4.2"
+pytest-cov = "^4.1.0"
+pytest-clarity = "^1.0.1"
+pytest-mock = "^3.11.1"
+
+
+[tool.poe.tasks]
+publish = { cmd = "poetry publish --build --repository nexus-internal --username $NEXUS_USERNAME --password $NEXUS_PASSWORD", help = "Publishes the package to nexus" }
+typecheck = { cmd = "mypy --show-error-codes --pretty --namespace-packages --ignore-missing-imports --explicit-package-bases paperboy tests", help = "Runs the type checking task" }
+test = { cmd = "pytest tests", help = "Runs the tests" }
+test-cov = { cmd = "pytest -vv --cov=paperboy --cov-report=term-missing tests", help = "Runs the tests, with coverage report" }
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.poe.tasks.format]
+help = "Runs the formatting and linting tasks"
+sequence = ["black paperboy tests", "isort paperboy tests"]
+default_item_type = "cmd"
+
+[tool.poe.tasks.lint]
+help = "Runs the formatting and linting tasks"
+sequence = [
+    "black --check paperboy tests",
+    "isort -c paperboy tests",
+    "flake8 paperboy tests",
+]
+default_item_type = "cmd"
+
+[tool.poe.tasks.ci]
+help = "Runs the formatting, linting and type checking tasks"
+sequence = ["lint", "typecheck"]
+
+[tool.poe.tasks.ci-version] # From edtrax
+help = "Generate docker tag"
+shell = """
+    if [[ -n \"$CI_COMMIT_TAG\" ]]; then
+      echo \"$CI_COMMIT_TAG\"
+    else
+      echo \"$(poetry version --short)-$CI_COMMIT_SHORT_SHA\"
+    fi
+    """ # FIXME Indented this way due to https://github.com/joeyespo/pytest-watch/issues/114 Don't change until fixed!
+interpreter = "bash"
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+python_functions = "test_*"
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+
+[tool.isort]
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true

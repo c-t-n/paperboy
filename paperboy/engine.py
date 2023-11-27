@@ -1,9 +1,12 @@
 import asyncio
 import logging
+import logging.config
 import signal
 from typing import TYPE_CHECKING, final
 
 from aiokafka import AIOKafkaConsumer, ConsumerStoppedError
+
+from .logs import PaperboyFormatter
 
 if TYPE_CHECKING:
     from paperboy.handler import BaseHandler
@@ -26,17 +29,20 @@ class Engine:
     """
 
     handlers: list[type["BaseHandler"]] = []
+    steps: list[list[type["BaseHandler"]]] = []
 
     @final
     def __init__(
         self,
-        with_commit: bool = True,
-        fail_on_exception: bool = False,
-        with_bulk_mode: bool = False,
-        commit_interval_sec: int = 10,
         bulk_mode_timeout_ms: int = 10000,
         bulk_mode_max_records: int = 10000,
         bulk_mode_threshold: int | None = 1000,
+        commit_interval_sec: int = 10,
+        fail_on_exception: bool = False,
+        logger_level: int = logging.INFO,
+        with_commit: bool = True,
+        with_bulk_mode: bool = False,
+        with_aiokafka_logs: bool = True,
     ):
         self.with_bulk_mode = with_bulk_mode
         self.bulk_mode_timeout_ms = bulk_mode_timeout_ms
@@ -46,19 +52,66 @@ class Engine:
         self.fail_on_exception = fail_on_exception
         self.commit_interval_sec = commit_interval_sec
 
-        self.log = logging.getLogger(self.__class__.__name__)
+        self.initialize_logger(
+            log_level=logger_level,
+            with_aiokafka_logs=with_aiokafka_logs,
+        )
+
         self.topic_handlers = {handler.topic: handler for handler in self.handlers}
         self.log.debug(f"topic handlers: {self.topic_handlers}")
 
         self.log.info("KafkaConsumerEngine initialized")
 
     @final
-    async def bulk_mode(self):
-        self.log.info("Entering Bulk Mode")
-        loop = asyncio.get_running_loop()
+    def initialize_logger(
+        self,
+        log_level: int = logging.INFO,
+        with_aiokafka_logs: bool = True,
+    ):
+        logging.config.dictConfig(
+            {
+                "version": 1,
+                "handlers": {
+                    "aiokafka": {
+                        "class": "logging.StreamHandler",
+                        "formatter": "aiokafka",
+                        "stream": "ext://sys.stdout",
+                    },
+                },
+                "formatters": {
+                    "aiokafka": {
+                        "format": "\x1b[33;20m%(levelname)s | %(name)s | %(message)s\x1b[0m",
+                    },
+                },
+                "loggers": {
+                    "aiokafka": {
+                        "handlers": ["aiokafka"] if with_aiokafka_logs else [],
+                        "level": log_level,
+                        "propagate": True,
+                    },
+                    "paperboy": {
+                        "handlers": [],
+                        "level": log_level,
+                        "propagate": True,
+                    },
+                },
+            }
+        )
 
+        self.log = logging.getLogger(f"paperboy.{self.__class__.__name__}")
+        ch = logging.StreamHandler()
+        ch.setLevel(log_level)
+        ch.setFormatter(PaperboyFormatter())
+
+        self.log.addHandler(ch)
+
+    @final
+    async def __bulk_mode(self, handlers: list[type["BaseHandler"]] = handlers):
+        loop = asyncio.get_running_loop()
         in_bulk = True
-        topics_in_bulk = {}
+        topics_in_bulk = {handler.topic: True for handler in handlers}
+
+        self.consumer.subscribe([topic for topic in topics_in_bulk.keys()])
 
         while in_bulk:
             offsets = {}
@@ -96,7 +149,7 @@ class Engine:
 
             in_bulk = any(topics_in_bulk.values())
 
-        self.log.info("Exiting Bulk Mode")
+        self.consumer.unsubscribe()
 
     @final
     async def __manual_commit(self):
@@ -114,6 +167,8 @@ class Engine:
             loop = asyncio.get_running_loop()
             loop.create_task(self.__manual_commit())
 
+        self.consumer.subscribe([topic for topic in self.topic_handlers.keys()])
+
         async for msg in self.consumer:
             handler = self.topic_handlers[msg.topic]
             await handler.handle(msg)
@@ -125,10 +180,18 @@ class Engine:
         """
         await self.consumer.start()
 
-        self.consumer.subscribe([topic for topic in self.topic_handlers.keys()])
+        if len(self.steps) > 0:
+            self.log.info(f"Entering Steps Mode with {len(self.steps)} steps")
+            for step_index, step in enumerate(self.steps):
+                self.log.info(
+                    f"Step {step_index + 1}/{len(self.steps)} | "
+                    f"Entering Bulk Mode with topics: {[handler.topic for handler in step]}"
+                )
+                await self.__bulk_mode(handlers=step)
 
-        if self.with_bulk_mode:
-            await self.bulk_mode()
+        elif self.with_bulk_mode:
+            self.log.info(f"Entering Bulk Mode with topics: {self.topic_handlers.keys()}")
+            await self.__bulk_mode()
 
         await self.__single_mode()
 

@@ -3,6 +3,8 @@ from typing import Generic, TypeVar, final
 
 from aiokafka import ConsumerRecord
 
+from paperboy.logs import PaperboyFormatter
+
 KT = TypeVar("KT")
 VT = TypeVar("VT")
 
@@ -21,12 +23,21 @@ class BaseHandler(Generic[KT, VT]):
     logger: logging.Logger
 
     @classmethod
+    def __initialize_logger(cls):
+        if not hasattr(cls, "logger"):
+            cls.logger = logging.getLogger(f"paperboy.{cls.__name__}")
+            ch = logging.StreamHandler()
+            ch.setFormatter(PaperboyFormatter())
+
+            cls.logger.addHandler(ch)
+
+    @classmethod
     async def handle(
         cls,
         msgs: ConsumerRecord[KT, VT] | list[ConsumerRecord[KT, VT]],
         fail_on_exception: bool = False,
     ) -> None:
-        cls.logger = logging.getLogger(cls.__name__)
+        cls.__initialize_logger()
 
     @classmethod
     async def define_context(cls) -> Context:
@@ -167,7 +178,7 @@ class Handler(BaseHandler[KT, VT]):
         msgs: ConsumerRecord[KT, VT] | list[ConsumerRecord[KT, VT]],
         fail_on_exception: bool = False,
     ):
-        cls.logger = logging.getLogger(cls.__name__)
+        await super().handle(msgs, fail_on_exception)
         ctx = await cls.define_context()
 
         if not isinstance(msgs, list):
@@ -214,7 +225,7 @@ class BulkHandler(BaseHandler[KT, VT]):
         msgs: ConsumerRecord[KT, VT] | list[ConsumerRecord[KT, VT]],
         fail_on_exception: bool = False,
     ):
-        cls.logger = logging.getLogger(cls.__name__)
+        await super().handle(msgs, fail_on_exception)
         ctx = await cls.define_context()
 
         if isinstance(msgs, list):

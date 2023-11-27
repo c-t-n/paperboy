@@ -54,6 +54,7 @@ This engine is meant to be used in a micro service architecture, where you have 
 
 - **Single mode**: The engine will consume messages from Kafka, and dispatch them to the handlers, message per message. This is the default mode
 - **Bulk mode**: The engine will consume messages from Kafka by batch (based on the number of records the engine can take, or a timeout), and dispatch them to the handlers, in a synchronous way. This mode is useful if you want to do some processing on the messages, and then commit the offsets, to avoid losing messages in case of failure.
+- **Step mode**: The engine will consume certain topics from Kafka, and dispatch them to the handlers, in bulkd. This mode is useful if you want to consume certain topics, before others. After finishing the last steps, the engine will go back to single mode with all the topics handlers.
 
 Single mode is the default mode, but the engine will switch to Bulk mode if the lag of the consumer is too high, to avoid overloading the Kafka cluster. Using Bulk mode is recommended if you want to do some processing on the messages, and then commit the offsets, to avoid losing messages in case of failure.
 Once the lag of the consumer is back to normal, the engine will switch back to Single mode, to keep the reactivity of the service.
@@ -141,6 +142,38 @@ The engine can be parametered by passing some arguments to the constructor:
 - **bulk_mode_threshold**: Lag threshold, in number of messages, before the engine switches to single mode. Can be set to None, to stay in bulk mode. Default: 1000
 
 - **commit_interval_ms**: Interval in milliseconds, before the engine commits the offsets in Single Mode. Default: 10000
+
+- **logger_level**: Logging level of the engine. Default: logging.INFO
+
+- **with_aiokafka_logs**: If set to True, the engine will log the aiokafka logs as well. Default: True
+
+### Step mode
+
+The engine can be run in Step mode, to consume certain topics before others. This is useful if you want to consume certain topics, before others. After finishing the last steps, the engine will go back to single mode with all the topics handlers.
+
+To do so, you need to define the `steps` attribute of the engine, as a list of lists of topics. Each list of topics will be consumed in bulk mode, and the engine will go back to single mode after finishing the last step.
+
+```python
+class KafkaConsumerEngine(Engine):
+    handlers = [
+        ExampleOneHandler,
+        ExampleTwoHandler,
+        ExampleThreeHandler,
+    ]
+
+    steps = [
+        [ExampleOneHandler, ExampleTwoHandler,],
+        [ExampleThreeHandler],
+    ]
+
+    def configure_consumer(self):
+        return AIOKafkaConsumer(
+            bootstrap_servers="localhost:9092",
+            group_id="example-group",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+        )
+```
 
 ## Handlers
 

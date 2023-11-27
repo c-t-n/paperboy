@@ -1,5 +1,5 @@
 from .engine import Engine
-from .handler import Context, BulkHandler, Handler
+from .handler import BulkHandler, Context, Handler
 
 __all__ = [
     "Handler",

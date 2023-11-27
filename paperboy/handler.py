@@ -25,7 +25,7 @@ class BaseHandler(Generic[KT, VT]):
         cls,
         msgs: ConsumerRecord[KT, VT] | list[ConsumerRecord[KT, VT]],
         fail_on_exception: bool = False,
-    ):
+    ) -> None:
         cls.logger = logging.getLogger(cls.__name__)
 
     @classmethod
@@ -39,7 +39,11 @@ class BaseHandler(Generic[KT, VT]):
         return None
 
     @classmethod
-    async def did_receive_message(cls, msg: ConsumerRecord, ctx: Context) -> ConsumerRecord[KT, VT]:
+    async def did_receive_message(
+        cls,
+        msg: ConsumerRecord,
+        ctx: Context,
+    ) -> ConsumerRecord[KT, VT]:
         """
         Lifecycle Hook called when a message of a batch is received.
 
@@ -49,7 +53,11 @@ class BaseHandler(Generic[KT, VT]):
         return msg
 
     @classmethod
-    async def on_tombstone(cls, msg: ConsumerRecord[KT, VT], ctx: Context):
+    async def on_tombstone(
+        cls,
+        msg: ConsumerRecord[KT, VT],
+        ctx: Context,
+    ) -> None:
         """
         Lifecycle Hook called when a tombstone is received.
 
@@ -60,7 +68,11 @@ class BaseHandler(Generic[KT, VT]):
         return
 
     @classmethod
-    async def on_message(cls, msg: ConsumerRecord[KT, VT], ctx: Context):
+    async def on_message(
+        cls,
+        msg: ConsumerRecord[KT, VT],
+        ctx: Context,
+    ) -> None:
         """
         Lifecycle Hook called when a message is received.
 
@@ -70,7 +82,12 @@ class BaseHandler(Generic[KT, VT]):
         return
 
     @classmethod
-    async def on_error(cls, e: Exception, msg: ConsumerRecord[KT, VT], ctx: Context) -> Exception | None:
+    async def on_error(
+        cls,
+        e: Exception,
+        msg: ConsumerRecord[KT, VT],
+        ctx: Context,
+    ) -> Exception | None:
         """
         Lifecycle Hook called when an error occurs while handling a message.
 
@@ -82,13 +99,17 @@ class BaseHandler(Generic[KT, VT]):
         return e
 
     @classmethod
-    async def on_finish_handling(cls, msgs: list[ConsumerRecord[KT, VT]], ctx: Context | None = None):
+    async def on_finish_handling(
+        cls,
+        msgs: list[ConsumerRecord[KT, VT]] | ConsumerRecord[KT, VT],
+        ctx: Context,
+    ) -> None:
         """
         Lifecycle Hook called after handling all messages of a batch
 
         Use it as a cleaner or to log the number of messages handled
         """
-        cls.logger.debug(f"on_finish_handling: {ctx=}")
+        cls.logger.debug(f"on_finish_handling: {msgs=} {ctx=}")
         return
 
 
@@ -206,27 +227,27 @@ class BulkHandler(BaseHandler[KT, VT]):
                 if exc or fail_on_exception:
                     raise exc or e
 
-            await cls.on_finish_handling(msgs, ctx)
-            return
+        else:
+            try:
+                msg = await cls.did_receive_message(msgs, ctx)
 
-        try:
-            msg = await cls.did_receive_message(msgs, ctx)
+                if msg.value is None:
+                    await cls.on_tombstone(msgs, ctx)
+                else:
+                    await cls.on_message(msgs, ctx)
 
-            if msg.value is None:
-                await cls.on_tombstone(msgs, ctx)
-            else:
-                await cls.on_message(msgs, ctx)
-
-        except Exception as e:
-            exc = await cls.on_error(e, msgs, ctx)
-            if exc or fail_on_exception:
-                raise exc or e
+            except Exception as e:
+                exc = await cls.on_error(e, msgs, ctx)
+                if exc or fail_on_exception:
+                    raise exc or e
 
         await cls.on_finish_handling(msgs, ctx)
 
     @classmethod
     async def did_receive_bulk_messages(
-        cls, msgs: list[ConsumerRecord[KT, VT]], ctx: Context
+        cls,
+        msgs: list[ConsumerRecord[KT, VT]],
+        ctx: Context,
     ) -> list[ConsumerRecord[KT, VT]]:
         """
         Lifecycle Hook called before handling a message batch.
@@ -237,7 +258,11 @@ class BulkHandler(BaseHandler[KT, VT]):
         return msgs
 
     @classmethod
-    async def on_bulk(cls, msgs: list[ConsumerRecord[KT, VT]], ctx: Context):
+    async def on_bulk(
+        cls,
+        msgs: list[ConsumerRecord[KT, VT]],
+        ctx: Context,
+    ) -> None:
         """
         Lifecycle Hook called when a message is received.
 
@@ -247,7 +272,12 @@ class BulkHandler(BaseHandler[KT, VT]):
         return
 
     @classmethod
-    async def on_bulk_error(cls, e: Exception, msgs: list[ConsumerRecord[KT, VT]], ctx: Context) -> Exception | None:
+    async def on_bulk_error(
+        cls,
+        e: Exception,
+        msgs: list[ConsumerRecord[KT, VT]],
+        ctx: Context,
+    ) -> Exception | None:
         """
         Lifecycle Hook called when an error occurs while handling a message.
 
@@ -257,17 +287,3 @@ class BulkHandler(BaseHandler[KT, VT]):
         cls.logger.exception(e)
 
         return e
-
-    @classmethod
-    async def on_finish_handling(
-        cls,
-        msgs: list[ConsumerRecord[KT, VT]] | ConsumerRecord[KT, VT],
-        ctx: Context | None = None,
-    ):
-        """
-        Lifecycle Hook called after handling all messages of a batch
-
-        Use it as a cleaner or to log the number of messages handled
-        """
-        cls.logger.debug(f"on_finish_handling: {ctx=}")
-        return

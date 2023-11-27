@@ -50,7 +50,7 @@ Rather than defining all the consumption logic in a single place, the engine wil
 
 This engine is meant to be used in a micro service architecture, where you have multiple services, each one consuming messages from a set of topics, and doing some processing on them.
 
-2 modes are available:
+3 modes are available:
 
 - **Single mode**: The engine will consume messages from Kafka, and dispatch them to the handlers, message per message. This is the default mode
 - **Bulk mode**: The engine will consume messages from Kafka by batch (based on the number of records the engine can take, or a timeout), and dispatch them to the handlers, in a synchronous way. This mode is useful if you want to do some processing on the messages, and then commit the offsets, to avoid losing messages in case of failure.
@@ -151,7 +151,7 @@ The engine can be parametered by passing some arguments to the constructor:
 
 The engine can be run in Step mode, to consume certain topics before others. This is useful if you want to consume certain topics, before others. After finishing the last steps, the engine will go back to single mode with all the topics handlers.
 
-To do so, you need to define the `steps` attribute of the engine, as a list of lists of topics. Each list of topics will be consumed in bulk mode, and the engine will go back to single mode after finishing the last step.
+To enable this mode, you need to define the `steps` attribute of the engine, as a list of lists of topics. Each list of topics will be consumed in bulk, and the engine will go back to single mode after finishing the last step.
 
 ```python
 class KafkaConsumerEngine(Engine):

@@ -144,4 +144,240 @@ The engine can be parametered by passing some arguments to the constructor:
 
 ## Handlers
 
-TBR
+Handlers are the classes that will handle the messages from a Kafka cluster.
+Those handlers treats a series of messages, based on the topic they are subscribed to.
+A handler exposes a series of class methods, used to handle the messages on certain points of their lifecycle, meant to be overriden by the user.
+
+### Handler Quick Start
+
+```python
+import asyncio
+from paperboy import Handler, Engine
+
+class ExampleHandler(Handler):
+    topic = "example-topic"
+
+    @classmethod
+    async def on_message(cls, msg, ctx):
+        # Lifecycle method called when a message is received
+        print(f"Received message: [{msg.key}] {msg.value}")
+
+    @classmethod
+    async def on_error(cls, e, ctx, exc) -> Exception | None:
+        # Lifecycle method called when an error is raised in the handler
+        print(f"Handler error: {exc}")
+        return e
+
+class KafkaConsumerEngine(Engine):
+    handlers = [ExampleHandler]
+    
+    def configure_consumer(self):
+        return AIOKafkaConsumer(
+            bootstrap_servers="localhost:9092",
+            group_id="example-group",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+        )
+
+c = KafkaConsumerEngine()
+asyncio.run(c.start())
+```
+
+
+### Handler lifecycle methods
+
+#### on_message
+
+```python
+    @classmethod
+    async def on_message(cls, msg: ConsumerRecord, ctx: Context):
+        pass
+```
+
+This method is called when a message is received from Kafka. It takes 2 arguments:
+
+- **msg**: The message received from Kafka, as a ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns nothing
+
+#### on_tombstone
+
+```python
+    @classmethod
+    async def on_tombstone(cls, msg: ConsumerRecord, ctx: Context):
+        pass
+```
+
+This method is called when a tombstone message is received from Kafka.
+Tombstone messages are messages with a null value, used to delete a key from a compacted topic.
+
+It takes 2 arguments:
+
+- **msg**: The message received from Kafka, as a ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns nothing
+
+#### on_error
+
+```python
+    @classmethod
+    async def on_error(cls, e: Exception, msg: ConsumerRecord, ctx: Context) -> Exception | None:
+        pass
+```
+
+This method is called when an error is raised in the handler. 
+
+It takes 3 arguments:
+
+- **e**: The exception raised in the handler
+- **msg**: The message received from Kafka, as a ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns an Exception, or None. If an Exception is returned, it will be raised in the engine, and the engine will stop. If None is returned, the engine will log the exception, and continue the consumption of messages.
+
+#### did_receive_message
+
+```python
+    @classmethod
+    async def did_receive_message(cls, msg: ConsumerRecord, ctx: Context) -> ConsumerRecord:
+        return msg
+```
+
+This method is called after the message reception.
+This method is useful if you want to do some processing on the message, before it is handled by the on_message method.
+
+It takes 2 arguments:
+
+- **msg**: The message received from Kafka, as a ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns a ConsumerRecord.
+
+#### on_finished_handling
+
+```python
+    @classmethod
+    async def on_finished_handling(cls, msgs: ConsumerRecord | list[ConsumerRecord], ctx: Context):
+        pass
+```
+
+This method is called after the overall message handling.
+This method is useful if you want to do some processing on the message, after it has been handled by the on_message / on_tombstone method.
+
+It takes 2 arguments:
+
+- **msgs**: The message received from Kafka, as a ConsumerRecord (from aiokafka), or a list of ConsumerRecord if the engine is in bulk mode
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns nothing.
+
+#### define_context
+
+```python
+    @classmethod
+    async def define_context(cls) -> Context | None:
+        return {}
+```
+
+This method is called before the message handling, and is used to define the context of the handling.
+The context is a dictionary, that will be passed to the lifecycle methods, and can be used to store some data, that will be used in the lifecycle methods.
+
+It takes no arguments.
+
+Returns a dictionary, or None.
+
+### Bulk Handlers
+
+Bulk handlers are handlers that will handle a batch of messages, rather than a single message.
+Those handlers are usefull if you want to apply a specific logic on a batch of messages, rather than a single message, via dedicated lifecycle methods.
+
+You also need to specify normal lifecycle methods with the bulk ones, to handle the messages when the engine runs in Single Mode
+
+```python
+import asyncio
+from paperboy import BulkHandler, Engine
+
+class ExampleProbeHandler(BulkHandler):
+
+    @classmethod
+    async def on_bulk(cls, msgs: list[ConsumerRecord], ctx: Context):
+        # Lifecycle method called when a batch of messages is received
+        print(f"Received {len(msgs)} messages")
+
+    @classmethod
+    async def on_message(cls, msg: ConsumerRecord, ctx: Context):
+        # Lifecycle method called when a message is received
+        print(f"Received message: [{msg.key}] {msg.value}")
+
+class KafkaConsumerEngine(Engine):
+    handlers = [ExampleHandler]
+    
+    def configure_consumer(self):
+        return AIOKafkaConsumer(
+            bootstrap_servers="localhost:9092",
+            group_id="example-group",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+        )
+
+c = KafkaConsumerEngine(with_bulk_mode=True)
+asyncio.run(c.start())
+```
+
+In this example, the engine will run in Bulk Mode, and will call the on_bulk_message method, when a batch of messages is received, rather than applying the on_message method on each message. The on_message method is still needed, to handle the messages when the engine runs in Single Mode.
+
+### BulkHandler parameters
+
+#### on_bulk
+
+```python
+    @classmethod
+    async def on_bulk(cls, msgs: list[ConsumerRecord], ctx: Context):
+        pass
+```
+
+This method is called when a batch of messages is received from Kafka.
+
+It takes 2 arguments:
+
+- **msgs**: The messages received from Kafka, as a list of ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns nothing
+
+#### on_bulk_error
+
+```python
+    @classmethod
+    async def on_bulk_error(cls, e: Exception, msgs: list[ConsumerRecord], ctx: Context) -> Exception | None:
+        pass
+```
+
+This method is called when an error is raised in the handler, when the engine is in Bulk Mode.
+
+It takes 3 arguments:
+
+- **e**: The exception raised in the handler
+- **msgs**: The messages received from Kafka, as a list of ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns an Exception, or None. If an Exception is returned, it will be raised in the engine, and the engine will stop. If None is returned, the engine will log the exception, and continue the consumption of messages.
+
+#### did_receive_bulk_messages
+
+```python
+    @classmethod
+    async def did_receive_bulk_messages(cls, msgs: list[ConsumerRecord], ctx: Context) -> list[ConsumerRecord]:
+        return msgs
+```
+
+This method is called after the batch of messages reception. This method is useful if you want to do some processing on the batch of messages, before it is handled by the on_bulk method.
+
+It takes 2 arguments:
+
+- **msgs**: The messages received from Kafka, as a list of ConsumerRecord (from aiokafka)
+- **ctx**: The context of the message, as a Context object (defined in the define_context method)
+
+Returns a list of ConsumerRecord.

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kafka-paperboy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Kafka ingester for python built around aiokafka"
 authors = ["Franck Lourme <coton@42.fr>"]
 readme = "README.md"

@@ -5,17 +5,17 @@ A wrapper around AIOKafka to make it easier to use, for message ingestion in you
 ## Installation
 
 ```bash
-pip install paperboy
+pip install kafka-paperboy
 ```
 
 ## Quick Start
 
 ```python
 import asyncio
-from paperboy import PaperboyEngine, PaperboyHandler
+from paperboy import Engine, Handler
 
 # Create a topic handler
-class ExampleTopicHandler(PaperboyHandler):
+class ExampleTopicHandler(Handler):
     topic = "example-topic"
 
     @classmethod
@@ -24,7 +24,7 @@ class ExampleTopicHandler(PaperboyHandler):
 
 
 # Create a consumer engine
-class KafkaConsumerEngine(PaperboyEngine):
+class KafkaConsumerEngine(Engine):
     handlers = [ExampleTopicHandler]
 
     def configure_consumer(self):
@@ -72,7 +72,7 @@ There's an option to disable the commiting of the offsets, if you don't want to 
 
 ```python
 
-class FailingEnging(PaperboyEngine):
+class FailingEngine(Engine):
     def configure_consumer(self):
         return AIOKafkaConsumer(
             bootstrap_servers="localhost:9092",
@@ -81,7 +81,7 @@ class FailingEnging(PaperboyEngine):
             enable_auto_commit=True, # This will raise an exception
         )
 
-class OKEngine(PaperboyEngine):
+class OKEngine(Engine):
     def configure_consumer(self):
         return AIOKafkaConsumer(
             bootstrap_servers="localhost:9092",
@@ -104,9 +104,9 @@ You can use this method to add a Schema Registry configuration, SASL authenticat
 from schema_registry.client import SchemaRegistryClient
 from schema_registry.serializers.message_serializer import AvroMessageSerializer
 
-from paperboy import PaperboyEngine
+from paperboy import Engine
 
-class KafkaConsumerEngine(PaperboyEngine):
+class KafkaConsumerEngine(Engine):
     handlers = []
 
     def configure_consumer(self):

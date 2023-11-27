@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "paperboy"
+name = "kafka-paperboy"
 version = "0.1.0"
 description = "Kafka ingester for python built around aiokafka"
 authors = ["Franck Lourme <coton@42.fr>"]
@@ -42,9 +42,9 @@ default_item_type = "cmd"
 [tool.poe.tasks.lint]
 help = "Runs the formatting and linting tasks"
 sequence = [
-    "black --check paperboy tests",
-    "isort -c paperboy tests",
-    "flake8 paperboy tests",
+  "black --check paperboy tests",
+  "isort -c paperboy tests",
+  "flake8 paperboy tests",
 ]
 default_item_type = "cmd"
 

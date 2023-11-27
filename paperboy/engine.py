@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, final
 from aiokafka import AIOKafkaConsumer, ConsumerStoppedError
 
 if TYPE_CHECKING:
-    from paperboy.handler import BasePaperboyHandler
+    from paperboy.handler import BaseHandler
 
 
-class PaperboyEngine:
+class Engine:
     """
     Engine used to consume messages from Kafka, using AIOKafka Library.
 
@@ -25,7 +25,7 @@ class PaperboyEngine:
     or an error occurs.
     """
 
-    handlers: list[type["BasePaperboyHandler"]] = []
+    handlers: list[type["BaseHandler"]] = []
 
     @final
     def __init__(

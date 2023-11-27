@@ -9,7 +9,7 @@ VT = TypeVar("VT")
 Context = dict | None
 
 
-class BasePaperboyHandler(Generic[KT, VT]):
+class BaseHandler(Generic[KT, VT]):
     """
     Base class for all topic handlers.
 
@@ -92,7 +92,7 @@ class BasePaperboyHandler(Generic[KT, VT]):
         return
 
 
-class PaperboyHandler(BasePaperboyHandler[KT, VT]):
+class Handler(BaseHandler[KT, VT]):
     """
     Topic handlers are used to handle messages from a specific topic.
     The handling is already operated in intern, you just have to define
@@ -169,7 +169,7 @@ class PaperboyHandler(BasePaperboyHandler[KT, VT]):
         await cls.on_finish_handling(msgs, ctx)
 
 
-class PaperboyBulkHandler(BasePaperboyHandler[KT, VT]):
+class BulkHandler(BaseHandler[KT, VT]):
     """
     Handler that have a different handling method in bulk mode.
 

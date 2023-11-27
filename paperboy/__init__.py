@@ -1,9 +1,9 @@
-from .engine import PaperboyEngine
-from .handler import Context, PaperboyBulkHandler, PaperboyHandler
+from .engine import Engine
+from .handler import Context, BulkHandler, Handler
 
 __all__ = [
-    "PaperboyHandler",
-    "PaperboyBulkHandler",
-    "PaperboyEngine",
+    "Handler",
+    "BulkHandler",
+    "Engine",
     "Context",
 ]

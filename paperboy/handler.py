@@ -18,6 +18,7 @@ class BasePaperboyHandler(Generic[KT, VT]):
     """
 
     topic: str
+    logger: logging.Logger
 
     @classmethod
     async def handle(

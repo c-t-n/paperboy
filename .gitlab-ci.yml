@@ -18,6 +18,8 @@ default:
     - ./.mypy_cache
     - ./.pytest_cache
     - ./.venv/
+  before_script:
+  - poetry install
 
 
 info:

@@ -4,7 +4,7 @@ import logging.config
 import signal
 from typing import TYPE_CHECKING, final
 
-from aiokafka import AIOKafkaConsumer, ConsumerStoppedError
+from aiokafka import AIOKafkaConsumer, ConsumerStoppedError, TopicPartition
 
 from .logs import PaperboyFormatter
 
@@ -58,7 +58,7 @@ class Engine:
             with_aiokafka_logs=with_aiokafka_logs,
         )
 
-        self.offsets = {}
+        self.offsets: dict[TopicPartition, int] = {}
 
         self.topic_handlers = {handler.topic: handler for handler in self.handlers}
         self.log.debug(f"topic handlers: {self.topic_handlers}")

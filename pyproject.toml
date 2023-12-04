@@ -10,6 +10,8 @@ packages = [{ include = "paperboy" }]
 python = "^3.11"
 aiokafka = "^0.8.1"
 python-schema-registry-client = "^2.5.0"
+rocksdict = "^0.3.18"
+msgpack = "^1.0.7"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -2,6 +2,8 @@
 
 A wrapper around AIOKafka to make it easier to use, for message ingestion in your micro services
 
+[[_TOC_]]
+
 ## Installation
 
 ```bash
@@ -22,21 +24,13 @@ class ExampleTopicHandler(Handler):
     async def on_message(cls, msg, ctx):
         print(f"Received message: [{msg.key}] {msg.value}")
 
-
-# Create a consumer engine
-class KafkaConsumerEngine(Engine):
-    handlers = [ExampleTopicHandler]
-
-    def configure_consumer(self):
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
-
 # Create an instance of the consumer engine and start it
-c = KafkaConsumerEngine(fail_on_exception=True)
+c = Engine(
+    ExampleTopicHandler,
+    bootstrap_servers="localhost:9092",
+    group_id="example-group",
+    fail_on_exception=True
+)
 asyncio.run(c.start())
 ```
 
@@ -59,94 +53,6 @@ This engine is meant to be used in a micro service architecture, where you have 
 Single mode is the default mode, but the engine will switch to Bulk mode if the lag of the consumer is too high, to avoid overloading the Kafka cluster. Using Bulk mode is recommended if you want to do some processing on the messages, and then commit the offsets, to avoid losing messages in case of failure.
 Once the lag of the consumer is back to normal, the engine will switch back to Single mode, to keep the reactivity of the service.
 
-### On Commiting
-
-To avoid the loss of messages in case of failure, the engine will commit the offsets to Kafka, after the processing of the messages. But to adapt it to Bulk and Single modes, the engine handles the offset commiting with its own logic. Kafka don't like to have the offsets committed too often, so we need to be careful about that.
-
-In order to work, set the `enable_auto_commit` option of the AIOKafkaConsumer to False.
-
-In Bulk mode, the engine will commit the offsets after the processing of the batch of messages. In Single mode, the engine will commit the offsets after a certain amount of time, in a background task. This is to avoid committing the offsets too often, and overload the Kafka cluster.
-
-An Exception will be raised if the option `enable_auto_commit` is set as True in the consumer, and the engine will stop.
-
-There's an option to disable the commiting of the offsets, if you don't want to commit them. This is useful if you want to do some processing on the messages, and then commit the offsets, to avoid losing messages in case of failure. To do so, set the `with_commit` option of the engine to False.
-
-```python
-
-class FailingEngine(Engine):
-    def configure_consumer(self):
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=True, # This will raise an exception
-        )
-
-class OKEngine(Engine):
-    def configure_consumer(self):
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False, # This is OK
-
-c_no_commit = OKEngine(with_commit=False) # This is OK but won't commit the offsets            
-c_with_commit = OKEngine(with_commit=True) # This is OK and it commits the offsets
-```
-
-### Configuring the consumer
-
-The engine will create an instance of the AIOKafkaConsumer, based on the `configure_consumer` method. This method must return an instance of the AIOKafkaConsumer, with the right configuration.
-
-You can use this method to add a Schema Registry configuration, SASL authentication, etc.
-
-```python
-# Example with python-schema-registry-client
-from schema_registry.client import SchemaRegistryClient
-from schema_registry.serializers.message_serializer import AvroMessageSerializer
-
-from paperboy import Engine
-
-class KafkaConsumerEngine(Engine):
-    handlers = []
-
-    def configure_consumer(self):
-        serializer = AvroMessageSerializer(
-            SchemaRegistryClient("http://localhost:8081")
-        )
-
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-            key_deserializer=serializer.decode_message,
-            value_deserializer=serializer.decode_message,
-        )
-```
-
-### Engine parameters
-
-The engine can be parametered by passing some arguments to the constructor:
-
-- **with_commit**: If set to True, the engine will commit the offsets after the processing of the messages. If set to False, the engine won't commit the offsets. Default: True
-
-- **fail_on_exception**: If set to True, the engine will stop if an exception is raised in a handler. If set to False, the engine will log the exception, and continue the consumption of messages. Default: True
-
-- **with_bulk_mode**: If set to True, the engine will consume messages from Kafka by batch (based on the number of records the engine can take, or a timeout), and dispatch them to the handlers, in a synchronous way. If set to False, the engine will consume messages from Kafka, and dispatch them to the handlers, message per message. Default: False
-
-- **bulk_mode_timeout_ms**: Timeout in milliseconds, before the next messages batch is consumed. Default: 10000
-
-- **bulk_mode_max_records**: Maximum number of records to consume in a batch. Default: 10000
-
-- **bulk_mode_threshold**: Lag threshold, in number of messages, before the engine switches to single mode. Can be set to None, to stay in bulk mode. Default: 1000
-
-- **commit_interval_ms**: Interval in milliseconds, before the engine commits the offsets in Single Mode. Default: 10000
-
-- **logger_level**: Logging level of the engine. Default: logging.INFO
-
-- **with_aiokafka_logs**: If set to True, the engine will log the aiokafka logs as well. Default: True
-
 ### Step mode
 
 The engine can be run in Step mode, to consume certain topics before others. This is useful if you want to consume certain topics, before others. After finishing the last steps, the engine will go back to single mode with all the topics handlers.
@@ -154,25 +60,22 @@ The engine can be run in Step mode, to consume certain topics before others. Thi
 To enable this mode, you need to define the `steps` attribute of the engine, as a list of lists of topics. Each list of topics will be consumed in bulk, and the engine will go back to single mode after finishing the last step.
 
 ```python
-class KafkaConsumerEngine(Engine):
-    handlers = [
-        ExampleOneHandler,
-        ExampleTwoHandler,
-        ExampleThreeHandler,
-    ]
+import asyncio
+from paperboy import Engine
 
+c = Engine(
+    ExampleOneHandler,
+    ExampleTwoHandler,
+    ExampleThreeHandler,
     steps = [
         [ExampleOneHandler, ExampleTwoHandler,],
         [ExampleThreeHandler],
     ]
-
-    def configure_consumer(self):
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
+    bootstrap_servers="localhost:9092",
+    group_id="example-group",
+    fail_on_exception=True
+)
+asyncio.run(c.start())
 ```
 
 ## Handlers
@@ -201,21 +104,46 @@ class ExampleHandler(Handler):
         print(f"Handler error: {exc}")
         return e
 
-class KafkaConsumerEngine(Engine):
-    handlers = [ExampleHandler]
-    
-    def configure_consumer(self):
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
-
-c = KafkaConsumerEngine()
+c = Engine(
+    ExampleHandler,
+    bootstrap_servers="localhost:9092",
+    group_id="example-group",
+    auto_offset_reset="earliest",
+    enable_auto_commit=False,
+)
 asyncio.run(c.start())
 ```
 
+### Handler class
+
+You can define the following class attributes on a handler:
+    - **topic**: The topic to consume
+    - **key_serializer**: The serializer for the key of the message
+    - **value_serializer**: The serializer for the value of the message
+
+Serializers must be a callable, that takes a bytes object as input, and returns a deserialized object.
+
+```python
+class ExampleHandler(Handler):
+    topic: str = "example-topic" # Topic to consume
+    key_serializer: Callable = lambda x: json.loads(x.decode("utf-8")) # Serializer for the key of the message
+    value_serializer: Callable = lambda x: json.loads(x.decode("utf-8")) # Serializer for the value of the message
+```
+
+This works alors with Avro schemas, using the `python-schema-registry-client` library
+
+```python
+from schema_registry.client import SchemaRegistryClient
+from schema_registry.serializers.avro import AvroMessageSerializer
+
+client = SchemaRegistryClient(url="http://localhost:8081")
+serializer = AvroMessageSerializer(client)
+
+class ExampleHandler(Handler):
+    topic: str = "example-topic" # Topic to consume
+    key_serializer: Callable = serializer.decode_message # Serializer for the key of the message
+    value_serializer: Callable = serializer.decode_message # Serializer for the value of the message
+```
 
 ### Handler lifecycle methods
 
@@ -260,7 +188,7 @@ Returns nothing
         pass
 ```
 
-This method is called when an error is raised in the handler. 
+This method is called when an error is raised in the handler.
 
 It takes 3 arguments:
 
@@ -344,18 +272,15 @@ class ExampleProbeHandler(BulkHandler):
         # Lifecycle method called when a message is received
         print(f"Received message: [{msg.key}] {msg.value}")
 
-class KafkaConsumerEngine(Engine):
-    handlers = [ExampleHandler]
-    
-    def configure_consumer(self):
-        return AIOKafkaConsumer(
-            bootstrap_servers="localhost:9092",
-            group_id="example-group",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
 
-c = KafkaConsumerEngine(with_bulk_mode=True)
+c = KafkaConsumerEngine(
+    ExampleHandler,
+    bootstrap_servers="localhost:9092",
+    with_bulk_mode=True
+    group_id="example-group",
+    auto_offset_reset="earliest",
+    enable_auto_commit=False,
+)
 asyncio.run(c.start())
 ```
 
@@ -414,3 +339,96 @@ It takes 2 arguments:
 - **ctx**: The context of the message, as a Context object (defined in the define_context method)
 
 Returns a list of ConsumerRecord.
+
+## Tables
+
+Tables are key/value stores, that can be used to store computed data from the messages, and can be used in the handlers.
+To ensure Table consistency, each mutation of the table is stored in a compacted topic in Kafka, and the table is reloaded from the topic at the start of the engine.
+
+### Table Quick Start
+
+```python
+import asyncio
+from paperboy import Table, Engine
+
+metrics_table = Table(
+    "metrics",
+    store="memory://"
+)
+
+class PageViewHandler(Handler):
+    topic = "page-views"
+
+    @classmethod
+    async def on_message(cls, msg, ctx):
+        # Access a specific key of the table (should return None if the key is not set)
+        clicks = metrics_table.get("page_views")
+        # Set a new value
+        await metrics_table.set("page_views", (clicks or 0) + 1)
+
+    @classmethod
+    async def on_tombstone(cls, msg, ctx):
+        # Delete a key
+        await metrics_table.delete("page_views")
+
+engine = Engine(
+    PageViewHandler,
+    bootstrap_servers="localhost:9092",
+    group_id="example-group",
+    fail_on_exception=True
+)
+
+# Register the table in the engine (the table will be reloaded from the topic at the start of the engine)
+engine.register_table(metrics_table)
+
+asyncio.run(engine.start())
+```
+
+### Table stores
+
+Tables uses 2 types of backend to store the data:
+
+- **InMemory**: The data is stored in memory, and is lost when the engine stops
+- **RocksDB**: The data is stored in a RocksDB database, and is persisted in the worker
+
+InMemory database is preferred in development, but RocksDB is recommended in production, to keep the data in case of failure.
+
+```python
+from paperboy import Table
+
+# InMemory database
+metrics_table = Table("metrics", store="memory://")
+
+# RocksDB database
+persisted_metrics_table = Table("prod_metrics", store="rocksdb://")
+```
+
+### Table methods
+
+```python
+from paperboy import Table
+
+table = Table(
+    # Table name
+    "metrics",
+    # Table store
+    store="memory://" if DEBUG else "rocksdb://",
+    # Changelog topic name in Kafka Cluster
+    changelog_topic_name="metrics-changelog",
+    # Changelog topic configuration
+    changelog_topic_num_partitions = 1,
+    changelog_topic_replication_factor = 1,
+    changelog_topic_segment_ms = 43200000,
+    changelog_topic_min_cleanable_dirty_ratio = 0.01,
+    changelog_topic_max_compaction_lag_ms = 86400000,        
+)
+
+# Get a value from the table (returns None if the key is not set)
+value = table.get("key") 
+
+# Set a value in the table
+await table.set("key", "value")
+
+# Delete a value from the table
+await table.delete("key")
+```

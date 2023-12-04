@@ -1,7 +1,7 @@
 import logging
-from typing import Generic, TypeVar, final
+from typing import Callable, Generic, TypeVar, final
 
-from aiokafka import ConsumerRecord
+from aiokafka import AIOKafkaProducer, ConsumerRecord
 
 from paperboy.logs import PaperboyFormatter
 
@@ -21,11 +21,15 @@ class BaseHandler(Generic[KT, VT]):
 
     topic: str
     logger: logging.Logger
+    key_deserializer: Callable[[bytes], KT] | None = None
+    value_deserializer: Callable[[bytes], VT] | None = None
+
+    producer: AIOKafkaProducer | None = None
 
     @classmethod
     def __initialize_logger(cls):
         if not hasattr(cls, "logger"):
-            cls.logger = logging.getLogger(f"paperboy.{cls.__name__}")
+            cls.logger = logging.getLogger(f"paperboy.handler.{cls.__name__}")
             ch = logging.StreamHandler()
             ch.setFormatter(PaperboyFormatter())
 
@@ -38,6 +42,10 @@ class BaseHandler(Generic[KT, VT]):
         fail_on_exception: bool = False,
     ) -> None:
         cls.__initialize_logger()
+
+    @classmethod
+    def set_producer(cls, producer: AIOKafkaProducer):
+        cls.producer = producer
 
     @classmethod
     async def define_context(cls) -> Context:
@@ -123,6 +131,15 @@ class BaseHandler(Generic[KT, VT]):
         cls.logger.debug(f"on_finish_handling: {msgs=} {ctx=}")
         return
 
+    @classmethod
+    @final
+    async def deserialize(cls, msg: ConsumerRecord) -> ConsumerRecord[KT, VT]:
+        if cls.key_deserializer:
+            msg.key = cls.key_deserializer(msg.key)  # type: ignore
+        if cls.value_deserializer:
+            msg.value = cls.value_deserializer(msg.value)  # type: ignore
+        return msg
+
 
 class Handler(BaseHandler[KT, VT]):
     """
@@ -186,6 +203,7 @@ class Handler(BaseHandler[KT, VT]):
 
         for msg in msgs:
             try:
+                msg = await cls.deserialize(msg)
                 msg = await cls.did_receive_message(msg, ctx)
 
                 if msg.value is None:
@@ -195,8 +213,8 @@ class Handler(BaseHandler[KT, VT]):
 
             except Exception as e:
                 exc = await cls.on_error(e, msg, ctx)
-                if exc or fail_on_exception:
-                    raise exc or e
+                if exc:
+                    raise exc from e
 
         await cls.on_finish_handling(msgs, ctx)
 
@@ -229,28 +247,29 @@ class BulkHandler(BaseHandler[KT, VT]):
         ctx = await cls.define_context()
 
         if isinstance(msgs, list):
+            msgs = [await cls.deserialize(msg) for msg in msgs]
             msgs = await cls.did_receive_bulk_messages(msgs, ctx)
 
             try:
                 await cls.on_bulk(msgs, ctx)
             except Exception as e:
                 exc = await cls.on_bulk_error(e, msgs, ctx)
-                if exc or fail_on_exception:
-                    raise exc or e
-
+                if exc:
+                    raise exc from e
         else:
             try:
-                msg = await cls.did_receive_message(msgs, ctx)
+                msgs = await cls.deserialize(msgs)
+                msgs = await cls.did_receive_message(msgs, ctx)
 
-                if msg.value is None:
+                if msgs.value is None:
                     await cls.on_tombstone(msgs, ctx)
                 else:
                     await cls.on_message(msgs, ctx)
 
             except Exception as e:
                 exc = await cls.on_error(e, msgs, ctx)
-                if exc or fail_on_exception:
-                    raise exc or e
+                if exc:
+                    raise exc from e
 
         await cls.on_finish_handling(msgs, ctx)
 
@@ -298,3 +317,6 @@ class BulkHandler(BaseHandler[KT, VT]):
         cls.logger.exception(e)
 
         return e
+
+
+__all__ = ["Handler", "BulkHandler", "Context"]

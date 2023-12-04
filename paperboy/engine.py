@@ -2,23 +2,46 @@ import asyncio
 import logging
 import logging.config
 import signal
-from typing import TYPE_CHECKING, final
+from typing import final
 
-from aiokafka import AIOKafkaConsumer, ConsumerStoppedError, TopicPartition
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, ConsumerRebalanceListener, ConsumerStoppedError, TopicPartition
+from aiokafka.helpers import create_ssl_context
+
+from paperboy.handler import BaseHandler
+from paperboy.table import Table
 
 from .logs import PaperboyFormatter
 
-if TYPE_CHECKING:
-    from paperboy.handler import BaseHandler
+
+class EngineConsumerRebalancer(ConsumerRebalanceListener):
+    def __init__(self, lock):
+        self.lock = lock
+
+        self.log = logging.getLogger("paperboy.ConsumerRebalancer")
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        ch.setFormatter(PaperboyFormatter())
+        self.log.addHandler(ch)
+
+    async def on_partitions_revoked(self, revoked):
+        self.log.info(f"Revoking partitions {revoked}, waiting on lock")
+        # wait until a single batch processing is done
+        async with self.lock:
+            pass
+        self.log.info("Partitions Revoked")
+
+    async def on_partitions_assigned(self, assigned):
+        pass
 
 
 class Engine:
     """
     Engine used to consume messages from Kafka, using AIOKafka Library.
 
-    Engine has 2 modes:
+    Engine has 3 modes:
     - Single Mode: Consume messages one by one
     - Bulk Mode: Consume messages in bulk, using AIOKafka's getmany method
+    - Step Mode: Consume messages in bulk, but in steps. Each step will consume messages from a list of topics.
 
     When you run the bulk mode, the engine will consume messages until :bulk_mode_threshdold: is reached
     on all topics. This is useful when you want to consume messages in bulk, but you don't want to wait
@@ -28,13 +51,34 @@ class Engine:
     or an error occurs.
     """
 
-    handlers: list[type["BaseHandler"]] = []
-    steps: list[list[type["BaseHandler"]]] = []
     __loop: asyncio.AbstractEventLoop
 
     @final
     def __init__(
         self,
+        *handlers: type["BaseHandler"],
+        steps: list[list[type["BaseHandler"]]] | None = None,
+        bootstrap_servers: str | list[str] = "localhost:9092",
+        client_id: str = "paperboy",
+        group_id: str = "paperboy",
+        auto_offset_reset: str = "earliest",
+        sasl_mechanism: str = "PLAIN",
+        security_protocol: str = "PLAINTEXT",
+        sasl_plain_username: str | None = None,
+        sasl_plain_password: str | None = None,
+        consumer_bootstrap_servers: str | list[str] | None = None,
+        consumer_client_id: str | None = None,
+        consumer_auto_offset_reset: str | None = None,
+        consumer_sasl_mechanism: str | None = None,
+        consumer_security_protocol: str | None = None,
+        consumer_sasl_plain_username: str | None = None,
+        consumer_sasl_plain_password: str | None = None,
+        producer_bootstrap_servers: str | list[str] | None = None,
+        producer_client_id: str | None = None,
+        producer_sasl_mechanism: str | None = None,
+        producer_security_protocol: str | None = None,
+        producer_sasl_plain_username: str | None = None,
+        producer_sasl_plain_password: str | None = None,
         bulk_mode_timeout_ms: int = 10000,
         bulk_mode_max_records: int = 10000,
         bulk_mode_threshold: int | None = 0,
@@ -45,6 +89,8 @@ class Engine:
         with_bulk_mode: bool = False,
         with_aiokafka_logs: bool = True,
     ):
+        self.handlers = handlers
+        self.steps = steps or []
         self.with_bulk_mode = with_bulk_mode
         self.bulk_mode_timeout_ms = bulk_mode_timeout_ms
         self.bulk_mode_max_records = bulk_mode_max_records
@@ -53,20 +99,53 @@ class Engine:
         self.fail_on_exception = fail_on_exception
         self.commit_interval_sec = commit_interval_sec
 
-        self.initialize_logger(
+        self.__initialize_logger(
             log_level=logger_level,
             with_aiokafka_logs=with_aiokafka_logs,
         )
 
-        self.offsets: dict[TopicPartition, int] = {}
+        self.consumer_options = {
+            "bootstrap_servers": consumer_bootstrap_servers or bootstrap_servers,
+            "client_id": consumer_client_id or client_id,
+            "group_id": group_id,
+            "enable_auto_commit": False,
+            "auto_offset_reset": consumer_auto_offset_reset or auto_offset_reset,
+            "sasl_mechanism": consumer_sasl_mechanism or sasl_mechanism,
+            "security_protocol": consumer_security_protocol or security_protocol,
+            "sasl_plain_username": consumer_sasl_plain_username or sasl_plain_username,
+            "sasl_plain_password": consumer_sasl_plain_password or sasl_plain_password,
+        }
 
-        self.topic_handlers = {handler.topic: handler for handler in self.handlers}
-        self.log.debug(f"topic handlers: {self.topic_handlers}")
+        self.producer_options = {
+            "bootstrap_servers": producer_bootstrap_servers or bootstrap_servers,
+            "client_id": producer_client_id or client_id,
+            "sasl_mechanism": producer_sasl_mechanism or sasl_mechanism,
+            "security_protocol": producer_security_protocol or security_protocol,
+            "sasl_plain_username": producer_sasl_plain_username or sasl_plain_username,
+            "sasl_plain_password": producer_sasl_plain_password or sasl_plain_password,
+        }
+
+        self.offsets: dict[TopicPartition, int] = {}
+        self.tables: set["Table"] = set()
 
         self.log.info("KafkaConsumerEngine initialized")
 
     @final
-    def initialize_logger(
+    def __configure_consumer(self) -> AIOKafkaConsumer:
+        return AIOKafkaConsumer(
+            **self.consumer_options,
+            ssl_context=create_ssl_context(),
+        )
+
+    @final
+    def __configure_producer(self) -> AIOKafkaProducer:
+        return AIOKafkaProducer(
+            **self.producer_options,
+            ssl_context=create_ssl_context(),
+        )
+
+    @final
+    def __initialize_logger(
         self,
         log_level: int = logging.INFO,
         with_aiokafka_logs: bool = True,
@@ -109,14 +188,19 @@ class Engine:
         self.log.addHandler(ch)
 
     @final
-    async def __bulk_mode(self, handlers: list[type["BaseHandler"]] | None = None):
+    async def __bulk_mode(self, handlers: list[type["BaseHandler"]] | list["Table"] | None = None):
         in_bulk = True
+        topic_handlers = {handler.topic: handler for handler in handlers or self.handlers}
         topics_in_bulk = {handler.topic: True for handler in handlers or self.handlers}
 
-        self.consumer.subscribe([topic for topic in topics_in_bulk.keys()])
+        self.consumer.subscribe(
+            list(topic_handlers.keys()),
+            listener=EngineConsumerRebalancer(asyncio.Lock()),
+        )
 
         while in_bulk:
-            tasks = []
+            tasks: list[asyncio.Task] = []
+
             messages = await self.consumer.getmany(
                 timeout_ms=self.bulk_mode_timeout_ms,
                 max_records=self.bulk_mode_max_records,
@@ -125,22 +209,27 @@ class Engine:
             if not messages:
                 break
 
-            self.log.info(f"Received messages:{str({tp: len(msgs) for tp, msgs in messages.items()})}")
+            consumed_msgs = {tp: len(msgs) for tp, msgs in messages.items()}
+            self.log.info(f"Received messages:{consumed_msgs}")
             for tp, msgs in messages.items():
                 if tp.topic not in topics_in_bulk.keys():
                     topics_in_bulk[tp.topic] = True
 
-                handler = self.topic_handlers[tp.topic]
+                handler = topic_handlers[tp.topic]
                 tasks.append(self.__loop.create_task(handler.handle(msgs)))
 
                 if self.bulk_mode_threshold is not None:
                     highwater = self.consumer.highwater(tp)
-                    if highwater <= msgs[-1].offset + self.bulk_mode_threshold or 0:  # type: ignore
+                    if highwater <= msgs[-1].offset + self.bulk_mode_threshold:  # type: ignore
                         topics_in_bulk[tp.topic] = False
 
                 self.offsets[tp] = msgs[-1].offset + 1  # type: ignore
 
-            await asyncio.wait(tasks)
+            results = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+
+            if any((task.exception for task in results[0])) and self.fail_on_exception:
+                self.log.error("An error occured, shutting down...")
+                return
 
             if self.with_commit:
                 self.log.info(f"Committing offsets: {self.offsets}")
@@ -172,9 +261,12 @@ class Engine:
 
         # Assign the same TP as the bulk mode does before, based on the previous subscription
         if not self.offsets:
-            self.consumer.subscribe([topic for topic in self.topic_handlers.keys()])
+            self.consumer.subscribe(
+                list(self.topic_handlers.keys()),
+                listener=EngineConsumerRebalancer(asyncio.Lock()),
+            )
         else:
-            self.consumer.assign([tp for tp in self.offsets.keys()])
+            self.consumer.assign(list(self.offsets.keys()))
 
         # Create the manual commit task
         self.__loop.create_task(self.__manual_commit())
@@ -188,16 +280,19 @@ class Engine:
                 self.consumer.seek(tp, offset)
 
         async for msg in self.consumer:
-            handler = self.topic_handlers[msg.topic]
-            await handler.handle(msg)
+            try:
+                await self.topic_handlers[msg.topic].handle(msg)
+            except Exception as e:
+                self.log.exception(e)
+                if self.fail_on_exception:
+                    self.log.error("An error occured, shutting down...")
+                    return
 
     @final
     async def __consume(self):
         """
         Launches the consumer, and starts consuming messages from Kafka.
         """
-        await self.consumer.start()
-
         if len(self.steps) > 0:
             self.log.info(f"Entering Steps Mode with {len(self.steps)} steps")
             for step_index, step in enumerate(self.steps):
@@ -214,6 +309,48 @@ class Engine:
         await self.__single_mode()
 
     @final
+    async def __initialize_tables(self):
+        """
+        Initializes all tables registered to the engine.
+        """
+        if not self.tables:
+            return
+
+        self.log.info("Initializing tables...")
+        for table in self.tables:
+            table.initialize(self.consumer, self.producer)
+
+        self.log.info("Recovering tables")
+        await self.__bulk_mode(handlers=list(self.tables))
+
+        # Resetting offsets
+        self.offsets = {}
+
+    async def __initialize_signal_handling(self):
+        """"""
+        signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+        for s in signals:
+            self.__loop.add_signal_handler(s, lambda s=s: asyncio.create_task(self.shutdown(s)))
+
+    @final
+    def register_table(self, table: "Table"):
+        """
+        Registers a table to the engine.
+
+        The table will be initialized when the engine starts.
+        """
+        if any((table.table_name == reg_table.table_name for reg_table in self.tables)):
+            raise ValueError(f"Table {table.table_name} already registered")
+
+        if any((table.changelog_topic_name == reg_table.changelog_topic_name for reg_table in self.tables)):
+            raise ValueError(f"Changelog topic {table.changelog_topic_name} already registered")
+
+        if any((table.changelog_topic_name == handler.topic for handler in self.handlers)):
+            raise ValueError(f"Changelog topic {table.changelog_topic_name} already handled")
+
+        self.tables.add(table)
+
+    @final
     async def start(self):
         """
         Starts the consumer, and handles the shutdown of the application.
@@ -222,7 +359,12 @@ class Engine:
         """
         self.__loop = asyncio.get_running_loop()
         try:
-            self.consumer = self.configure_consumer()
+            self.consumer = self.__configure_consumer()
+            self.producer = self.__configure_producer()
+
+            await self.consumer.start()
+            if self.producer:
+                await self.producer.start()
 
             if self.consumer._enable_auto_commit:
                 self.log.error(
@@ -231,18 +373,30 @@ class Engine:
                     "If you don't want to commit, please set with_commit=False in the "
                     "Engine constructor."
                 )
-                await self.consumer.stop()
+                await self.shutdown()
                 return
-            signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
-            for s in signals:
-                self.__loop.add_signal_handler(s, lambda s=s: asyncio.create_task(self.shutdown(s)))
 
+            # Initialize Signal Handling
+            await self.__initialize_signal_handling()
+
+            # Create Topic Handlers
+            self.topic_handlers = {handler.topic: handler for handler in self.handlers}
+
+            # Set producer to all handlers
+            for handler in self.handlers:
+                handler.set_producer(self.producer)
+
+            # Initialize tables
+            await self.__initialize_tables()
+
+            # Consume messages
             await self.__loop.create_task(self.__consume())
+
         except (ConsumerStoppedError, asyncio.CancelledError):
             pass
-        except Exception as e:
-            self.log.exception(e)
+        except Exception:
             await self.shutdown()
+            return
 
     @final
     async def shutdown(self, signal: signal.Signals | None = None):
@@ -253,18 +407,15 @@ class Engine:
             self.log.info(f"Received exit signal {signal.name}...")
         self.log.info("Stopping consumer...")
         await self.consumer.stop()
+        self.log.info("Stopping producer...")
+        await self.producer.stop()
 
         self.log.info("Cancelling async tasks...")
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         [task.cancel() for task in tasks]
 
-        self.log.debug("Tasks to cancel: {tasks}")
+        self.log.info(f"Tasks to cancel: {tasks}")
         await asyncio.gather(*tasks, return_exceptions=True)
+        self.log.info("All tasks cancelled, exiting...")
 
-    def configure_consumer(self) -> AIOKafkaConsumer:
-        """
-        Returns an initiated AIOKafkaConsumer instance.
-
-        Override this method to configure your AIOKafkaConsumer instance.
-        """
-        return AIOKafkaConsumer()
+        return

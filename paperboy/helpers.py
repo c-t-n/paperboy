@@ -24,22 +24,28 @@ def get_last_values_from_batch(msgs: list[ConsumerRecord]) -> tuple[Values, Tomb
     iterators: one for the values, and one for the tombstones.
 
     example:
-    >>> msgs = [
-    >>>  {"key": "a", "value": 1},
-    >>>  {"key": "a", "value": 2},
-    >>>  {"key": "a", "value": 3},
-    >>>  {"key": "b", "value": 1},
-    >>>  {"key": "c", "value": 1},
-    >>>  {"key": "c", "value": 10},
-    >>>  {"key": "c", "value": 25},
-    >>>  {"key": "c", "value": None}
-    >>>  {"key": "b", "value": 100},
-    >>> ]
+    >>> pprint(msgs)
+    [
+        ConsumerRecord(offset=1, key="a", value=1, ...),
+        ConsumerRecord(offset=2, key="a", value=2, ...),
+        ConsumerRecord(offset=3, key="a", value=3, ...),
+        ConsumerRecord(offset=4, key="b", value=1, ...),
+        ConsumerRecord(offset=5, key="c", value=1, ...),
+        ConsumerRecord(offset=6, key="c", value=10, ...),
+        ConsumerRecord(offset=7, key="c", value=25, ...),
+        ConsumerRecord(offset=8, key="c", value=None, ...),
+        ConsumerRecord(offset=9, key="b", value=100, ...),
+    ]
     >>> values, tombstones = get_last_values_from_batch(msgs)
     >>> list(values)
-    [{"key": "a", "value": 3}, {"key": "b", "value": 100}]
+    [
+        ConsumerRecord(offset=3, key="a", value=3, ...),
+        ConsumerRecord(offset=9, key="b", value=100, ...),
+    ]
     >>> list(tombstones)
-    [{"key": "c", "value": None}]
+    [
+        ConsumerRecord(offset=8, key="c", value=None, ...),
+    ]
     """
     v = map(
         lambda group: deque(group[1], maxlen=1).pop(),

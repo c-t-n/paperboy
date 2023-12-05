@@ -1,5 +1,5 @@
-from itertools import filterfalse, groupby, tee
 from collections import deque
+from itertools import filterfalse, groupby, tee
 from typing import Iterable
 
 from aiokafka import ConsumerRecord

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kafka-paperboy"
-version = "0.3.1"
+version = "0.4.0"
 description = "Kafka ingester for python built around aiokafka"
 authors = ["Franck Lourme <coton@42.fr>"]
 readme = "README.md"
@@ -32,6 +32,14 @@ typecheck = { cmd = "mypy --show-error-codes --pretty --namespace-packages --ign
 test = { cmd = "pytest tests", help = "Runs the tests" }
 test-cov = { cmd = "pytest -vv --cov=paperboy --cov-report=term-missing tests", help = "Runs the tests, with coverage report" }
 
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "semver"
+version_provider = "poetry"
+update_changelog_on_bump = true
+major_version_zero = true
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

@@ -1,3 +1,9 @@
+## 0.4.1 (2023-12-29)
+
+### Fix
+
+- change fail_on_exception logic
+
 ## 0.4.0 (2023-12-29)
 
 ### Feat

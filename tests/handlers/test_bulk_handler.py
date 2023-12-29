@@ -1,6 +1,6 @@
+import pytest
 from aiokafka import ConsumerRecord
 
-import pytest
 from paperboy import BulkHandler, Context
 from tests.handlers.fixtures import HandlerBaseTestClass, create_spies
 
@@ -15,7 +15,7 @@ class RaiseErrorHandler(BulkHandler):
         raise Exception("error")
 
     @classmethod
-    async def on_message(cls, e: Exception, msg: ConsumerRecord, ctx: Context) -> Exception | None:
+    async def on_message(cls, msg: ConsumerRecord, ctx: Context) -> None:
         raise Exception("error")
 
 
@@ -108,7 +108,7 @@ class TestBulkHandlerBatches(HandlerBaseTestClass):
         handler = RaiseErrorHandler()
         spies = await create_spies(handler, mocker)
 
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(Exception):
             await handler.handle(
                 [
                     self.mocked_message,

@@ -1,7 +1,7 @@
+import pytest
 from aiokafka import ConsumerRecord
 
-import pytest
-from paperboy import Handler, Context
+from paperboy import Context, Handler
 from tests.handlers.fixtures import HandlerBaseTestClass, create_spies
 
 

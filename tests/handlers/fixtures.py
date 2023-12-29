@@ -49,7 +49,7 @@ async def create_spies(handler: BaseHandler, mocker) -> dict:
             "on_finish_handling": mocker.spy(handler.__class__, "on_finish_handling"),
             "on_error": mocker.spy(handler.__class__, "on_error"),
         }
-    except:
+    except Exception:
         # Handler Spies
         return {
             "define_context": mocker.spy(handler.__class__, "define_context"),

@@ -1,5 +1,5 @@
-from tests.helpers.fixtures import HelperBaseTestClass
 from paperboy.helpers import get_last_values_from_batch
+from tests.helpers.fixtures import HelperBaseTestClass
 
 
 class TestGetLatestValuesHelper(HelperBaseTestClass):

@@ -1,5 +1,4 @@
-from collections import deque
-from itertools import filterfalse, groupby, tee
+from itertools import filterfalse, tee
 from typing import Iterable
 
 from aiokafka import ConsumerRecord
@@ -21,7 +20,7 @@ def partition(pred, iterable):
 def get_last_values_from_batch(msgs: list[ConsumerRecord]) -> tuple[Values, Tombstones]:
     """
     Returns the last values from each key in a batch of messages, and returns two
-    iterators: one for the values, and one for the tombstones.
+    iterators: one for the values, and one for the tombstones, sorted by offset
 
     example:
     >>> pprint(msgs)
@@ -47,12 +46,12 @@ def get_last_values_from_batch(msgs: list[ConsumerRecord]) -> tuple[Values, Tomb
         ConsumerRecord(offset=8, key="c", value=None, ...),
     ]
     """
-    v = map(
-        lambda group: deque(group[1], maxlen=1).pop(),
-        groupby(msgs, lambda msg: msg.key),
+    sorted_values = sorted(
+        {msg.key: msg for msg in msgs}.values(),
+        key=lambda msg: msg.offset,
     )
 
-    return partition(lambda record: record.value is None, v)
+    return partition(lambda record: record.value is None, sorted_values)
 
 
 __all__ = ["get_last_values_from_batch"]

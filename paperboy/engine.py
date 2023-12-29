@@ -226,10 +226,18 @@ class Engine:
                 self.offsets[tp] = msgs[-1].offset + 1  # type: ignore
 
             results = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+            task_exceptions = [task.exception() for task in results[0]]
 
-            if any((task.exception for task in results[0])) and self.fail_on_exception:
-                self.log.error("An error occured, shutting down...")
-                return
+            if any(task_exceptions):
+                for task_exception in task_exceptions:
+                    if task_exception:
+                        self.log.exception(task_exception)
+
+                if self.fail_on_exception:
+                    self.log.error("An error occured, shutting down...")
+                    return
+                else:
+                    self.log.warning("An error occured, continuing...")
 
             if self.with_commit:
                 self.log.info(f"Committing offsets: {self.offsets}")

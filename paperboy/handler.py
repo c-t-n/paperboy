@@ -247,10 +247,10 @@ class BulkHandler(BaseHandler[KT, VT]):
         ctx = await cls.define_context()
 
         if isinstance(msgs, list):
-            msgs = [await cls.deserialize(msg) for msg in msgs]
-            msgs = await cls.did_receive_bulk_messages(msgs, ctx)
-
             try:
+                msgs = [await cls.deserialize(msg) for msg in msgs]
+                msgs = await cls.did_receive_bulk_messages(msgs, ctx)
+
                 await cls.on_bulk(msgs, ctx)
             except Exception as e:
                 exc = await cls.on_bulk_error(e, msgs, ctx)

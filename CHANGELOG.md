@@ -1,3 +1,9 @@
+## 0.5.0 (2023-12-29)
+
+### Feat
+
+- add minimal healthcheck API
+
 ## 0.4.1 (2023-12-29)
 
 ### Fix

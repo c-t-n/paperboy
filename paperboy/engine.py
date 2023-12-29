@@ -8,6 +8,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, ConsumerRebalanceListen
 from aiokafka.helpers import create_ssl_context
 
 from paperboy.handler import BaseHandler
+from paperboy.health_api import run_api
 from paperboy.table import Table
 
 from .logs import PaperboyFormatter
@@ -88,6 +89,8 @@ class Engine:
         with_commit: bool = True,
         with_bulk_mode: bool = False,
         with_aiokafka_logs: bool = True,
+        healthcheck_host: str = "0.0.0.0",
+        healthcheck_port: int = 8080,
     ):
         self.handlers = handlers
         self.steps = steps or []
@@ -98,6 +101,8 @@ class Engine:
         self.with_commit = with_commit
         self.fail_on_exception = fail_on_exception
         self.commit_interval_sec = commit_interval_sec
+        self.healthcheck_host = healthcheck_host
+        self.healthcheck_port = healthcheck_port
 
         self.__initialize_logger(
             log_level=logger_level,
@@ -128,7 +133,7 @@ class Engine:
         self.offsets: dict[TopicPartition, int] = {}
         self.tables: set["Table"] = set()
 
-        self.log.info("KafkaConsumerEngine initialized")
+        self.log.info("KafkaConsumerEngine initialized !!")
 
     @final
     def __configure_consumer(self) -> AIOKafkaConsumer:
@@ -366,6 +371,15 @@ class Engine:
         Use this method with asyncio.run, or in an asyncio loop.
         """
         self.__loop = asyncio.get_running_loop()
+
+        # Starting healthcheck API
+        self.__loop.create_task(
+            run_api(
+                host=self.healthcheck_host,
+                port=self.healthcheck_port,
+            )
+        )
+
         try:
             self.consumer = self.__configure_consumer()
             self.producer = self.__configure_producer()

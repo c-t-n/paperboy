@@ -432,3 +432,27 @@ await table.set("key", "value")
 # Delete a value from the table
 await table.delete("key")
 ```
+
+## Healthcheck
+
+The engine exposes a healthcheck endpoint, that can be used to check if the engine still ingest.
+
+It's exposed on the 8080 port by default and can be configured with 2 arguments:
+
+- **healthcheck_port**: The port to expose the healthcheck endpoint (8080 by default)
+- **healthcheck_host**: The host to expose the healthcheck endpoint ("0.0.0.0" by default)
+
+```python
+from paperboy import Engine
+
+engine = Engine(
+    PageViewHandler,
+    bootstrap_servers="localhost:9092",
+    group_id="example-group",
+    fail_on_exception=True
+    healthcheck_port=8080,
+    healthcheck_host="0.0.0.0"
+)
+
+asyncio.run(engine.start())
+```

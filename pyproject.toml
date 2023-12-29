@@ -12,6 +12,7 @@ aiokafka = "^0.8.1"
 python-schema-registry-client = "^2.5.0"
 rocksdict = "^0.3.18"
 msgpack = "^1.0.7"
+aiohttp = "^3.9.1"
 
 
 [tool.poetry.group.dev.dependencies]
